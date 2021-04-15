@@ -22,6 +22,7 @@ if __name__ == '__main__':
         KML.createKMLLayer(_kml_document, f'./data/{_layer}', _project_styles)
         bar.update(100/len(_layers)*k)
 
+    # Añadimos los estilos del kmz
     _kml.getroot().find('./').extend(_project_styles)
 
     # Cerramos y salvamos el archivo creado

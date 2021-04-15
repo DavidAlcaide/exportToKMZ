@@ -5,17 +5,17 @@ import pyproj as prj
 from typing import List
 
 
-def makeDescription(pointData: gp.geoseries) -> etree.Element:
+def makeDescription(entitieData: gp.geoseries) -> etree.Element:
     """
-    :param pointData:
+    :param entitieData:
     :return:
     """
     _description = etree.Element('description')
 
     description_content = f'<table class="esri-widget__table"><tbody>'
 
-    for k in pointData.keys()[:-3]:
-        description_content += f'<tr><th class="esri-feature__field-header">{k}</th><td>{pointData.loc[k]}</td></tr>'
+    for k in entitieData.keys()[:-3]:
+        description_content += f'<tr><th class="esri-feature__field-header">{k}</th><td>{entitieData.loc[k]}</td></tr>'
 
     description_content += '</tbody></table>'
 
@@ -56,6 +56,15 @@ def makePointStyle(stylesId: List[str]) -> List[etree.Element]:
         styles.append(_style)
 
     return styles
+
+
+def makeLineStyles(shpData: gp.GeoDataFrame) -> List[etree.Element]:
+    """
+    :param shpData:
+    :return:
+    """
+    _styles = []
+    return _styles
 
 
 def transformCoordinates(xcoord: float, ycoord: float) -> List[str]:
@@ -101,6 +110,25 @@ def makePoint(point: Point) -> etree.Element:
     return _point
 
 
+def makeLine(lineString: LineString) -> etree.Element:
+    """
+    :param lineString:
+    :return:
+    """
+    _lineString = etree.Element('LineString')
+    _extrude = etree.SubElement(_lineString, 'extrude')
+    _extrude.text = '0'
+    _tessellate = etree.SubElement(_lineString, 'tessellate')
+    _tessellate.text = '1'
+    _altitude_mode = etree.SubElement(_lineString, 'altitudeMode')
+    _altitude_mode.text = 'clampToGround'
+    _coordinates = etree.SubElement(_lineString, 'coordinates')
+    _coords = [','.join([str(_) for _ in list(k)]) for k in list(lineString.coords)]
+    _coordinates.text = " ".join(_coords)
+
+    return _lineString
+
+
 def createPointPlaceMark(pointData: gp.geoseries, index: int) -> etree.Element:
     """
     :param index:
@@ -117,6 +145,26 @@ def createPointPlaceMark(pointData: gp.geoseries, index: int) -> etree.Element:
     _styleUrl.text = f'#{pointData["Style"]}'
     _placeMark.append(_styleUrl)
     _placeMark.append(makeDescription(pointData))
+
+    return _placeMark
+
+
+def createLinePlacemark(lineData: gp.geoseries, index: int) -> etree.Element:
+    """
+    :param lineData:
+    :param index:
+    :return:
+    """
+    _placeMark = etree.Element('Placemark', {'id': str(index)})
+    _name = etree.SubElement(_placeMark, 'name')
+    _name.text = lineData['Label']
+    _placeMark.append(makeExtendedData(lineData))
+
+    # Introducción de la gemometría
+    _placeMark.append(makeLine(lineData['geometry']))
+    _placeMark.append(makeDescription(lineData))
+
+    # Introducción del estilo de la línea
 
     return _placeMark
 
@@ -143,6 +191,28 @@ def addPointKMLLayer(_kml_document: etree.Element, shpData: gp.GeoDataFrame, lay
     project_styles.extend(_styles)
 
 
+def addLineKMLLayer(_kml_document: etree.Element, shpData: gp.GeoDataFrame, layerName: str, project_styles: List[etree.Element]) -> None:
+    """
+    :param _kml_document:
+    :param shpData:
+    :param layerName:
+    :param project_styles:
+    :return:
+    """
+    _folder = etree.SubElement(_kml_document, 'Folder', {'id': layerName})
+    _name = etree.Element('text')
+    _name.text = layerName
+    _folder.append(_name)
+    _folder.append(etree.Element('Snippet'))
+
+    for i in range(shpData.shape[0]):
+        _placemark = createLinePlacemark(shpData.loc[i], i)
+        _folder.append(_placemark)
+
+    #_lineStyles = makeLineStyles(shpData)
+    #project_styles.extend(_lineStyles)
+
+
 
 def createKMLLayer(_kml_document: etree.Element, path: str, project_styles: List[etree.Element]) -> None:
     """
@@ -161,7 +231,10 @@ def createKMLLayer(_kml_document: etree.Element, path: str, project_styles: List
     if isinstance(shpData.geometry[0], Point):
         addPointKMLLayer(_kml_document, shpData, path.split('/')[-1].split('.shp')[0], project_styles)
     elif isinstance(shpData.geometry[0], LineString):
-        #addLineKMLLayer(_kml_document, shpData,  path.split('/')[-1].split('.shp')[0])
-        pass
+        shpData = shpData.explode()
+        shpData.reset_index(inplace=True, drop=True)
+        shpData.drop(columns=['index'], axis=1, inplace=True)
+        addLineKMLLayer(_kml_document, shpData,  path.split('/')[-1].split('.shp')[0], project_styles)
+
     else:
         print('Capa no soportada por el sistema')
