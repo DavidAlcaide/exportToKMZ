@@ -13,7 +13,7 @@ def makeDescription(entitieData: gp.geoseries) -> etree.Element:
     """
     _description = etree.Element('description')
 
-    description_content = f'<table class="esri-widget__table"><tbody>'
+    description_content = f'<link rel="stylesheet" href="https://js.arcgis.com/4.18/esri/css/main.css"><table class="esri-widget__table"><tbody>'
 
     for k in entitieData.keys()[:-3]:
         description_content += f'<tr><th class="esri-feature__field-header">{k}</th><td>{entitieData.loc[k]}</td></tr>'
@@ -285,18 +285,15 @@ def createKMLLayer(_kml_document: etree.Element, path: str, project_styles: List
     """
 
     shpData = gp.read_file(path)
-
     shpData = shpData[shpData['geometry'] != None]
-    shpData.reset_index(inplace=True)
-
     shpData.to_crs(4326, inplace=True)
+    shpData.reset_index(inplace=True, drop=True)
 
     if isinstance(shpData.geometry[0], Point):
         addPointKMLLayer(_kml_document, shpData, path.split('/')[-1].split('.shp')[0], project_styles)
     elif isinstance(shpData.geometry[0], LineString):
         shpData = shpData.explode()
         shpData.reset_index(inplace=True, drop=True)
-        shpData.drop(columns=['index'], axis=1, inplace=True)
         addLineKMLLayer(_kml_document, shpData,  path.split('/')[-1].split('.shp')[0], project_styles)
 
     else:
