@@ -1,3 +1,4 @@
+import os
 from lxml import etree
 from shapely.geometry import Point, LineString
 import geopandas as gp
@@ -58,12 +59,34 @@ def makePointStyle(stylesId: List[str]) -> List[etree.Element]:
     return styles
 
 
-def makeLineStyles(shpData: gp.GeoDataFrame) -> List[etree.Element]:
+def parseKMLColor(color: str) -> str:
     """
-    :param shpData:
+    :param color:
+    :return:
+    """
+    ## color -> alphabluegreenred
+
+    r, g, b, a = color.split(",")
+
+    return '%02x%02x%02x%02x' % (int(a), int(b), int(g), int(r))
+
+
+def makeLineStyles(styles: dict) -> List[etree.Element]:
+    """
+    :param styles:
     :return:
     """
     _styles = []
+
+    for style in styles:
+        _style = etree.Element('Style', {'id': f'{style}'})
+        _lineStyle = etree.SubElement(_style, 'LineStyle')
+        _color = etree.SubElement(_lineStyle, 'color')
+        _color.text = parseKMLColor(styles[style]['color'])
+        _width = etree.SubElement(_lineStyle, 'width')
+        _width.text = styles[style]['width']
+        _styles.append(_style)
+
     return _styles
 
 
@@ -149,10 +172,11 @@ def createPointPlaceMark(pointData: gp.geoseries, index: int) -> etree.Element:
     return _placeMark
 
 
-def createLinePlacemark(lineData: gp.geoseries, index: int) -> etree.Element:
+def createLinePlacemark(lineData: gp.geoseries, index: int, styles: dict) -> etree.Element:
     """
     :param lineData:
     :param index:
+    :param styles:
     :return:
     """
     _placeMark = etree.Element('Placemark', {'id': str(index)})
@@ -164,7 +188,18 @@ def createLinePlacemark(lineData: gp.geoseries, index: int) -> etree.Element:
     _placeMark.append(makeLine(lineData['geometry']))
     _placeMark.append(makeDescription(lineData))
 
-    # Introducción del estilo de la línea
+    # Introducción del estilo de la línea -> Comprobamos la procedencia del estilo y lo asignamos en base a ella
+    _styleUrl = etree.Element('styleUrl')
+    if lineData['Style'] == None:
+        # El estilo viene determinado en base a un archivo '.qml'
+        _field = list(styles.keys())[0].split("_")[0]
+        _styleUrl.text = f'#{_field}_{lineData[_field]}'
+    else:
+        # El estilo viene determinado por el campo "Style" de la capa
+        _aux = list(filter(lambda x: x[1]['content'] == lineData["Style"], styles.items()))[0]
+        _styleUrl.text = f'#{_aux}'
+
+    _placeMark.append(_styleUrl)
 
     return _placeMark
 
@@ -205,12 +240,40 @@ def addLineKMLLayer(_kml_document: etree.Element, shpData: gp.GeoDataFrame, laye
     _folder.append(_name)
     _folder.append(etree.Element('Snippet'))
 
+    # Comprobación de la fuente de los estilos -> Pueden venir dados por el campo Style o por un fichero lines.qml
+
+    if 'lines.qml' in [file.name for file in os.scandir('./data/styles')]:
+        f = open('./data/styles/lines.qml')
+        _qml = etree.parse(f)
+        render = _qml.getroot().find('./renderer-v2')
+        _renderAtt = render.get('attr')
+        _styles = {}
+        for category in render.findall('./categories/'):
+            if category.get('label') != "":
+                _symbol = category.get("symbol")
+                _styles[f'{_renderAtt}_{category.get("label")}'] = {
+                        'color': render.find(f"./symbols/symbol[@name='{_symbol}']/layer/prop[@k='line_color']").get(
+                            "v"),
+                        'width': render.find(f"./symbols/symbol[@name='{_symbol}']/layer/prop[@k='line_width']").get(
+                            "v")
+                    }
+    else:
+        _styles = {}
+        for k, style in enumerate(list(set(shpData.loc[:, 'Style']))):
+            _styles[f'style0{k}'] = {
+                'color': style.split(';')[0].split(':')[1],
+                'width': style.split(';')[1].split(':')[1],
+                'content': style
+            }
+
+    # Creamos los placemarks añadiendo el estilo que corresponde a cada uno
+
     for i in range(shpData.shape[0]):
-        _placemark = createLinePlacemark(shpData.loc[i], i)
+        _placemark = createLinePlacemark(shpData.loc[i], i, _styles)
         _folder.append(_placemark)
 
-    #_lineStyles = makeLineStyles(shpData)
-    #project_styles.extend(_lineStyles)
+    _lineStyles = makeLineStyles(_styles)
+    project_styles.extend(_lineStyles)
 
 
 
